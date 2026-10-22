@@ -137,6 +137,12 @@ def read_aula_keyboard() -> Reading:
 
 
 def read_zhu_headset() -> Reading:
+    """竹林鸟玄武：目前只用于诊断，界面不再显示它。
+
+    dongle 只暴露 USB Audio + 一个 3 字节 consumer HID（无 Output/Feature），
+    耳机开/关机时接口集合不变，USB 侧拿不到电量；官方驱动面板也没有电量功能。
+    以后如果官方固件开放厂商通道，再把它加回 read_all()。
+    """
     iface = None
     for d in hidlib.enumerate_hid():
         if d.vid == ZHU_VID and d.pid == ZHU_PID:
@@ -151,7 +157,6 @@ def read_all() -> dict[str, Reading]:
     return {
         "mouse": read_atk_mouse(),
         "keyboard": read_aula_keyboard(),
-        "headset": read_zhu_headset(),
     }
 
 

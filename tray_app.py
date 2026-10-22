@@ -149,8 +149,30 @@ TRAY = [
     # (uID, key, 名称, 是否带底板)
     (1, "mouse", "ATK 鼠标", False),
     (2, "keyboard", "狼蛛 F65 键盘", True),
-    (3, "headset", "竹林鸟玄武耳机", True),
 ]
+
+
+def instance_running() -> bool:
+    """托盘是否已经在跑（用 OpenMutex，不会创建锁）。"""
+    SYNCHRONIZE = 0x00100000
+    KERNEL32.OpenMutexW.restype = wintypes.HANDLE
+    KERNEL32.OpenMutexW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
+    h = KERNEL32.OpenMutexW(SYNCHRONIZE, False, MUTEX_NAME)
+    if h:
+        KERNEL32.CloseHandle(h)
+        return True
+    return False
+
+
+def spawn_panel() -> None:
+    """另起进程打开面板（打包后是同一个 exe 带 --panel）。"""
+    import subprocess
+    if FROZEN:
+        cmd = [sys.executable, "--panel"]
+    else:
+        cmd = [sys.executable.replace("python.exe", "pythonw.exe"),
+               os.path.join(BASE_DIR, "panel.py")]
+    subprocess.Popen(cmd, cwd=BASE_DIR, creationflags=0x00000008)
 
 
 class TrayApp:
@@ -163,6 +185,7 @@ class TrayApp:
         self.last_good = {}   # key -> (level, charging, voltage, 时间字符串)
         self.icons_added = False
         self.last_update = ""
+        self.show_panel_on_start = False
         self.taskbar_msg = USER32.RegisterWindowMessageW("TaskbarCreated")
 
     def log(self, msg: str) -> None:
@@ -268,10 +291,8 @@ class TrayApp:
             if r.ok and r.level is not None:
                 self.last_good[key] = (r.level, r.charging, r.voltage_mv,
                                        self.last_update)
-        m, k, h = (self.readings["mouse"], self.readings["keyboard"],
-                   self.readings["headset"])
-        self.log(f"刷新完成 鼠标={m.level}/{m.note} 键盘={k.level}/{k.note} "
-                 f"耳机={h.level}/{h.note}")
+        parts = " ".join(f"{k}={r.level}/{r.note}" for k, r in self.readings.items())
+        self.log(f"刷新完成 {parts}")
         self.update_icons()
 
     # ---------------- 菜单 ----------------
@@ -319,15 +340,8 @@ class TrayApp:
             self.log(f"开机自启 -> {ok}")
 
     def open_panel(self) -> None:
-        import subprocess
         try:
-            if FROZEN:
-                subprocess.Popen([sys.executable, "--panel"],
-                                 cwd=BASE_DIR, creationflags=0x00000008)
-            else:
-                subprocess.Popen([sys.executable.replace("python.exe", "pythonw.exe"),
-                                  os.path.join(BASE_DIR, "panel.py")],
-                                 cwd=BASE_DIR, creationflags=0x00000008)
+            spawn_panel()
             self.log("已打开面板")
         except Exception as e:
             self.log(f"打开面板失败：{e}")
@@ -389,6 +403,11 @@ class TrayApp:
         self.add_icons()
         USER32.SetTimer(hwnd, 1, REFRESH_INTERVAL_MS, None)
         self.refresh_now()
+        if self.show_panel_on_start:
+            try:
+                spawn_panel()
+            except Exception:
+                self.log("打开面板失败\n" + traceback.format_exc())
         msg = MSG()
         while USER32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
             USER32.TranslateMessage(ctypes.byref(msg))
@@ -402,6 +421,8 @@ def main() -> int:
     parser.add_argument("--debug", action="store_true", help="前台运行并输出")
     parser.add_argument("--once", action="store_true", help="只打印一次")
     parser.add_argument("--panel", action="store_true", help="只打开面板")
+    parser.add_argument("--show", action="store_true",
+                        help="启动托盘并打开面板；已经在跑就只打开面板")
     parser.add_argument("--autostart", choices=["on", "off", "status"],
                         help="设置/查看开机自启")
     args = parser.parse_args()
@@ -430,6 +451,13 @@ def main() -> int:
                 print(f"{key:9} --    {r.note}")
         return 0
 
+    show_panel = False
+    if args.show:
+        if instance_running():
+            spawn_panel()
+            return 0
+        show_panel = True
+
     KERNEL32.CreateMutexW(None, False, MUTEX_NAME)
     if ctypes.get_last_error() == 183:
         print("托盘已经在运行了（右下角那三个数字图标）")
@@ -441,6 +469,7 @@ def main() -> int:
         pass
 
     app = TrayApp(debug=args.debug)
+    app.show_panel_on_start = show_panel
     try:
         return app.run()
     except Exception:

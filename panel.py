@@ -17,7 +17,6 @@ SUB = "#9aa0a6"
 ITEMS = [
     ("mouse", "ATK 鼠标", "373B:101A · 1K 接收器"),
     ("keyboard", "狼蛛 F65 键盘", "3554:FA09 · 2.4G 接收器"),
-    ("headset", "竹林鸟玄武耳机", "4C4A:4155 · ZhuAudio ZG2"),
 ]
 
 
@@ -36,7 +35,7 @@ class Panel:
         self.root = root
         root.title("设备电量")
         root.configure(bg=BG)
-        root.geometry("440x380")
+        root.geometry("440x320")
         root.resizable(False, False)
 
         self.readings = {}
